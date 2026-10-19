@@ -1,0 +1,74 @@
+name: Build Elite Armor
+
+on: [push, workflow_dispatch]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Pillow
+        run: pip install pillow
+
+      - name: Generate textures
+        run: python3 tools/make_textures.py
+
+      - name: Generate data
+        run: python3 tools/make_data.py
+
+      - name: Generate item icons
+        run: |
+          python3 - <<'EOF'
+          import os
+          from PIL import Image
+
+          MATERIALS = {
+              "iron_elite":      ((80, 80, 85),    (180, 180, 190)),
+              "diamond_elite":   ((20, 80, 140),   (100, 200, 255)),
+              "netherite_elite": ((25, 20, 30),    (80, 70, 90)),
+              "redstone_elite":  ((120, 10, 10),   (255, 80, 80)),
+              "emerald_elite":   ((10, 80, 30),    (60, 210, 100)),
+          }
+          SLOTS = ["helmet", "chestplate", "leggings", "boots"]
+          OUT = "src/main/resources/assets/elitearmor/textures/item"
+          os.makedirs(OUT, exist_ok=True)
+          for mat, (top, bot) in MATERIALS.items():
+              for slot in SLOTS:
+                  img = Image.new("RGBA", (16, 16))
+                  for y in range(16):
+                      t = y / 15
+                      r = int(top[0] + (bot[0]-top[0])*t)
+                      g = int(top[1] + (bot[1]-top[1])*t)
+                      b = int(top[2] + (bot[2]-top[2])*t)
+                      for x in range(16):
+                          img.putpixel((x, y), (r, g, b, 255))
+                  img.save(f"{OUT}/{mat}_{slot}.png")
+          print("Item icons done!")
+          EOF
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 8
+
+      - uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: 7.6.4
+
+      - name: Build
+        run: |
+          gradle build --no-daemon > log.txt 2>&1 || {
+            grep -E -A3 "error:|What went wrong|Could not|Exception" log.txt | head -60
+            exit 1
+          }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: EliteArmor
+          path: build/libs/*.jar
